@@ -76,6 +76,9 @@ def __gen_kiwis_method(cls, method_name, available_query_options, available_retu
     start_snake = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', method_name)
     snake_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', start_snake).lower()
 
+    if 'format' not in available_query_options:
+        available_query_options['format'] = QueryOption(False, False, None)
+
     cls._KIWIS__method_args[method_name] = available_query_options
     cls._KIWIS__return_args[method_name] = available_return_fields
     def kiwis_method(self, return_fields = None, keep_tz=False, verify = True, **kwargs):
@@ -116,17 +119,25 @@ def __gen_kiwis_method(cls, method_name, available_query_options, available_retu
         if method_name in ['getGraph', 'getStationGraph']:
             return r.content
 
-        json_data = r.json()
-        if type(json_data) is dict and 'type' in json_data.keys() and json_data['type'] == 'error':
+        try:
+            json_data = r.json()
+        except ValueError:
+            return r.text
+
+        if isinstance(json_data, dict) and 'type' in json_data.keys() and json_data['type'] == 'error':
             raise KIWISError(
                 'KIWIS returned an error:\n\tCode: {0}\n\tMessage: "{1}"'.format(
-                    json_data['code'],
-                    json_data['message']
+                    json_data.get('code'),
+                    json_data.get('message')
                 )
             )
 
         if json_data is None or json_data == "No matches." or (isinstance(json_data, list) and len(json_data) > 0 and json_data[0] == "No matches."):
             raise NoDataError()
+
+        req_format = str(params.get('format', '')).lower()
+        if req_format == 'geojson' or (isinstance(json_data, dict) and json_data.get('type') in ['FeatureCollection', 'Feature']):
+            return json_data
 
         if method_name in [
                 'getGroupList',
@@ -145,18 +156,22 @@ def __gen_kiwis_method(cls, method_name, available_query_options, available_retu
                 'getTimeseriesChanges',
                 'getTimeseriesComments',
             ]:
-            return pd.DataFrame(json_data[1:], columns = json_data[0])
+            if isinstance(json_data, list) and len(json_data) > 0 and isinstance(json_data[0], list):
+                return pd.DataFrame(json_data[1:], columns = json_data[0])
+            return json_data
         elif method_name in ['getTimeseriesValues']:
-            df = pd.DataFrame(json_data[0]['data'], columns = json_data[0]['columns'].split(','))
-            if 'Timestamp' in df.columns:
-                df.set_index('Timestamp', inplace = True)
-                if keep_tz:
-                    hour_offset, minute_offset = map(int, df.index[0].split('+')[1].split(':'))
-                    logger.debug('Using timezone offset %d hour(s) and %d minute(s)', hour_offset, minute_offset)
-                    df.index = pd.to_datetime(df.index).tz_localize('UTC').tz_convert(pytz.FixedOffset(hour_offset*60+minute_offset))
-                else:
-                    df.index = pd.to_datetime(df.index)
-            return df
+            if isinstance(json_data, list) and len(json_data) > 0 and isinstance(json_data[0], dict) and 'data' in json_data[0] and 'columns' in json_data[0]:
+                df = pd.DataFrame(json_data[0]['data'], columns = json_data[0]['columns'].split(','))
+                if 'Timestamp' in df.columns:
+                    df.set_index('Timestamp', inplace = True)
+                    if keep_tz:
+                        hour_offset, minute_offset = map(int, df.index[0].split('+')[1].split(':'))
+                        logger.debug('Using timezone offset %d hour(s) and %d minute(s)', hour_offset, minute_offset)
+                        df.index = pd.to_datetime(df.index).tz_localize('UTC').tz_convert(pytz.FixedOffset(hour_offset*60+minute_offset))
+                    else:
+                        df.index = pd.to_datetime(df.index)
+                return df
+            return json_data
         elif method_name in [
                 'getCatchmentHierarchy',
                 'getStandardRemarkTypeList',

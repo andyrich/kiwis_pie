@@ -196,3 +196,95 @@ class KIWISTest(unittest.TestCase):
         df = self.k.get_site_list(site_no=['1', '2'])
         self.assertEqual(len(df), 2)
 
+    @requests_mock.mock()
+    def test_get_station_list_geojson(self, m):
+        geojson_response = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [148.834, -35.53]
+                    },
+                    "properties": {
+                        "station_name": "Cotter R. at Gingera",
+                        "station_no": "410730"
+                    }
+                }
+            ]
+        }
+        m.get(
+            'http://www.bom.gov.au/waterdata/services?station_name=Cotter+R.+at+Gingera&format=geojson&service=kisters&type=QueryServices&request=getStationList',
+            text=json.dumps(geojson_response)
+        )
+        res = self.k.get_station_list(station_name='Cotter R. at Gingera', format='geojson')
+        self.assertIsInstance(res, dict)
+        self.assertEqual(res['type'], 'FeatureCollection')
+        self.assertEqual(len(res['features']), 1)
+        self.assertEqual(res['features'][0]['properties']['station_name'], 'Cotter R. at Gingera')
+
+    @requests_mock.mock()
+    def test_get_timeseries_value_layer_geojson(self, m):
+        geojson_response = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [148.834, -35.53]
+                    },
+                    "properties": {
+                        "ts_id": "12345",
+                        "value": 24.5
+                    }
+                }
+            ]
+        }
+        m.get(
+            'http://www.bom.gov.au/waterdata/services?ts_id=12345&format=geojson&service=kisters&type=QueryServices&request=getTimeseriesValueLayer',
+            text=json.dumps(geojson_response)
+        )
+        res = self.k.get_timeseries_value_layer(ts_id='12345', format='geojson')
+        self.assertIsInstance(res, dict)
+        self.assertEqual(res['type'], 'FeatureCollection')
+        self.assertEqual(res['features'][0]['properties']['value'], 24.5)
+
+    @requests_mock.mock()
+    def test_get_site_list_geojson(self, m):
+        geojson_response = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [-122.5, 38.3]
+                    },
+                    "properties": {
+                        "site_name": "Santa Rosa Plain",
+                        "site_no": "SRP"
+                    }
+                }
+            ]
+        }
+        m.get(
+            'http://www.bom.gov.au/waterdata/services?site_no=SRP&format=geojson&service=kisters&type=QueryServices&request=getSiteList',
+            text=json.dumps(geojson_response)
+        )
+        res = self.k.get_site_list(site_no='SRP', format='geojson')
+        self.assertIsInstance(res, dict)
+        self.assertEqual(res['type'], 'FeatureCollection')
+        self.assertEqual(res['features'][0]['properties']['site_no'], 'SRP')
+
+    @requests_mock.mock()
+    def test_non_json_format_fallback(self, m):
+        csv_response = "station_name,station_no\nCotter R.,410730\n"
+        m.get(
+            'http://www.bom.gov.au/waterdata/services?format=csv&service=kisters&type=QueryServices&request=getStationList',
+            text=csv_response
+        )
+        res = self.k.get_station_list(format='csv')
+        self.assertEqual(res, csv_response)
+
